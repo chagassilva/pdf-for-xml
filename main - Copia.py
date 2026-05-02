@@ -1,5 +1,6 @@
 from flask import Flask, request, send_file, render_template_string
 import pdfplumber
+from pypdf import PdfReader
 import os
 import io
 
@@ -7,11 +8,11 @@ app = Flask(__name__)
 
 # Configurações de pastas
 UPLOAD_FOLDER = 'entrada'
-OUTPUT_FOLDER = 'PDFforXML'
+OUTPUT_FOLDER = 'AutomacaoPDF'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# HTML com um visual mais "Pro" mantido
+# HTML com um visual mais "Pro"
 HTML_PAGE = '''
 <!doctype html>
 <html lang="pt-br">
@@ -31,12 +32,12 @@ HTML_PAGE = '''
 <body>
     <div class="card">
         <h1>Conversor XML v2</h1>
-        <p>Transforme seu PDF para o Mistral (Modo Fracionado)</p>
+        <p>Transforme seu PDF para o Mistral</p>
         <form method="post" enctype="multipart/form-data">
             <input type="file" name="file" accept=".pdf" required>
             <input type="submit" value="CONVERTER E BAIXAR">
         </form>
-        <div class="footer">O arquivo XML será gerado quebrado por páginas com CDATA seguro.</div>
+        <div class="footer">O arquivo XML será gerado com CDATA seguro.</div>
     </div>
 </body>
 </html>
@@ -56,37 +57,28 @@ def upload_file():
             pdf_path = os.path.join(UPLOAD_FOLDER, file.filename)
             file.save(pdf_path)
             
+            # Lógica de conversão baseada no seu script original
             try:
-                # Inicia a estrutura base do XML
+                reader = PdfReader(pdf_path)
+                num_paginas = len(reader.pages)
+                conteudo_completo = ""
+
+                with pdfplumber.open(pdf_path) as pdf:
+                    for i in range(num_paginas):
+                        texto = pdf.pages[i].extract_text()
+                        if texto:
+                            texto_limpo = "\n".join([l.strip() for l in texto.split('\n') if l.strip()])
+                            conteudo_completo += f"\n--- PAGINA {i+1} ---\n{texto_limpo}"
+
+                # Monta o XML final[cite: 1]
                 xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <processamento_logistica>
-    <origem>{file.filename}</origem>\n"""
+    <origem>{file.filename}</origem>
+    <total_paginas>{num_paginas}</total_paginas>
+    <conteudo_extraido><![CDATA[{conteudo_completo}]]></conteudo_extraido>
+</processamento_logistica>"""
 
-                # pdfplumber já sabe contar páginas, não precisamos do PdfReader
-                with pdfplumber.open(pdf_path) as pdf:
-                    num_paginas = len(pdf.pages)
-                    xml_content += f"    <total_paginas>{num_paginas}</total_paginas>\n"
-                    xml_content += "    <paginas>\n"
-                    
-                    # Loop quebrando página por página
-                    for i in range(num_paginas):
-                        # layout=True mantém o alinhamento das colunas da tabela!
-                        texto = pdf.pages[i].extract_text(layout=True)
-                        
-                        if texto:
-                            # Limpa linhas vazias, mas mantém o espaçamento horizontal
-                            texto_limpo = "\n".join([l for l in texto.split('\n') if l.strip()])
-                        else:
-                            texto_limpo = ""
-
-                        xml_content += f'        <pagina numero="{i+1}">\n'
-                        xml_content += f'            <conteudo><![CDATA[\n{texto_limpo}\n]]></conteudo>\n'
-                        xml_content += f'        </pagina>\n'
-
-                # Fecha as tags do XML
-                xml_content += "    </paginas>\n</processamento_logistica>"
-
-                # Envia o arquivo direto para o navegador
+                # Envia o arquivo direto para o navegador sem salvar lixo no disco permanentemente
                 return send_file(
                     io.BytesIO(xml_content.encode('utf-8')),
                     mimetype='text/xml',
