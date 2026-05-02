@@ -2,18 +2,17 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Instala dependências do sistema necessárias para o pdfplumber/imagemagick se necessário
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
+# Copia o arquivo de requisitos primeiro para aproveitar o cache do Docker
 COPY requirements.txt .
+
+# Instala as bibliotecas
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copia o restante dos arquivos (seu pdf.py ou main.py)
 COPY . .
 
-# Comando para manter o container rodando ou executar o script
-# ... (restante do arquivo igual)
+# Expõe a porta que o Flask vai usar
 EXPOSE 80
-# Mude de 'seu_script.py' para 'pdf.py' (ou o nome real do seu arquivo)
+
+# Comando para rodar (verifique se o nome é pdf.py ou main.py)
 CMD ["python", "main.py"]
