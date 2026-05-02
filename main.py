@@ -1,67 +1,57 @@
+from flask import Flask, request, send_file, render_template_string
 import pdfplumber
-from pypdf import PdfReader, PdfWriter
+from pypdf import PdfReader
 import os
-import time
 
-def processar_arquivos():
-    pasta_entrada = "entrada"
-    pasta_saida = "AutomacaoPDF"
-    
-    # Cria as pastas se não existirem
-    if not os.path.exists(pasta_entrada): os.makedirs(pasta_entrada)
-    if not os.path.exists(pasta_saida): os.makedirs(pasta_saida)
+app = Flask(__name__)
+UPLOAD_FOLDER = 'entrada'
+OUTPUT_FOLDER = 'AutomacaoPDF'
 
-    # Lista arquivos PDF
-    arquivos = [f for f in os.listdir(pasta_entrada) if f.lower().endswith(".pdf")]
-    
-    if not arquivos:
-        return # Sai da função se não houver nada, mas o loop continua
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-    for arquivo_nome in arquivos:
-        caminho_pdf = os.path.join(pasta_entrada, arquivo_nome)
-        print(f"Processando: {arquivo_nome}")
-        
-        try:
-            reader = PdfReader(caminho_pdf)
-            for i, page in enumerate(reader.pages):
-                num_pagina = i + 1
-                
-                # Extração (usando a lógica do seu código original)
-                writer = PdfWriter()
-                writer.add_page(page)
-                
-                # Cria um PDF temporário para a página
-                temp_path = os.path.join(pasta_saida, f"temp_{num_pagina}.pdf")
-                with open(temp_path, "wb") as f:
-                    writer.write(f)
-                
-                with pdfplumber.open(temp_path) as pdf:
-                    texto_bruto = pdf.pages[0].extract_text()
-                    if texto_bruto:
-                        texto_limpo = "\n".join([l.strip() for l in texto_bruto.split('\n') if l.strip()])
-                        
+HTML_PAGE = '''
+<!doctype html>
+<title>Conversor PDF para XML</title>
+<h1>Enviar PDF para converter</h1>
+<form method=post enctype=multipart/form-data>
+  <input type=file name=file>
+  <input type=submit value=Converter>
+</form>
+'''
+
+@app.route('/', methods=['GET', 'POST'])
+def upload_file():
+    if request.method == 'POST':
+        file = request.files['file']
+        if file and file.filename.endswith('.pdf'):
+            path = os.path.join(UPLOAD_FOLDER, file.filename)
+            file.save(path)
+            
+            # Lógica de conversão simplificada[cite: 1]
+            reader = PdfReader(path)
+            xml_paths = []
+            
+            with pdfplumber.open(path) as pdf:
+                for i, page in enumerate(pdf.pages):
+                    texto = page.extract_text()
+                    if texto:
+                        texto_limpo = "\n".join([l.strip() for l in texto.split('\n') if l.strip()])
                         xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <processamento_logistica>
-    <pagina>{num_pagina}</pagina>
-    <origem>{arquivo_nome}</origem>
+    <pagina>{i+1}</pagina>
     <conteudo_extraido><![CDATA[{texto_limpo}]]></conteudo_extraido>
 </processamento_logistica>"""
-                        
-                        xml_nome = f"{arquivo_nome}_pag_{num_pagina}.xml"
-                        with open(os.path.join(pasta_saida, xml_nome), "w", encoding="utf-8") as f:
+                        xml_name = f"{file.filename}_{i+1}.xml"
+                        xml_path = os.path.join(OUTPUT_FOLDER, xml_name)
+                        with open(xml_path, "w", encoding="utf-8") as f:
                             f.write(xml_content)
-                
-                os.remove(temp_path) # Limpa o temporário
+                        xml_paths.append(xml_path)
             
-            # Após processar, remove o original da entrada para não processar de novo
-            os.remove(caminho_pdf)
-            print(f"Sucesso: {arquivo_nome} convertido.")
+            return f"Processado! {len(xml_paths)} páginas convertidas em {OUTPUT_FOLDER}."
             
-        except Exception as e:
-            print(f"Erro no arquivo {arquivo_nome}: {e}")
+    return HTML_PAGE
 
-if __name__ == "__main__":
-    print("Servidor de conversão iniciado...")
-    while True:
-        processar_arquivos()
-        time.sleep(10) # Espera 10 segundos para checar de novo
+if __name__ == '__main__':
+    # O Easypanel usa a porta 80 por padrão para domínios
+    app.run(host='0.0.0.0', port=80)

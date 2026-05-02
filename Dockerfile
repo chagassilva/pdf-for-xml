@@ -14,6 +14,6 @@ COPY . .
 
 # Comando para manter o container rodando ou executar o script
 # ... (restante do arquivo igual)
-
+EXPOSE 80
 # Mude de 'seu_script.py' para 'pdf.py' (ou o nome real do seu arquivo)
 CMD ["python", "main.py"]
