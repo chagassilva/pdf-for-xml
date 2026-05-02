@@ -13,4 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Comando para manter o container rodando ou executar o script
-CMD ["python", "seu_script.py"]
+# ... (restante do arquivo igual)
+
+# Mude de 'seu_script.py' para 'pdf.py' (ou o nome real do seu arquivo)
+CMD ["python", "main.py"]
