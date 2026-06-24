@@ -1,3 +1,5 @@
-flask
 pdfplumber
 pypdf
+Flask==3.0.3
+pytesseract==0.3.13
+Pillow==10.3.0
