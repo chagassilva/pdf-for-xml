@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 import pdfplumber
 import pytesseract
 from PIL import Image
@@ -6,23 +6,52 @@ import os
 import cv2
 import numpy as np
 import base64
+import io
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'entrada'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+HTML_PAGE = '''
+<!doctype html>
+<html lang="pt-br">
+<head>
+    <meta charset="utf-8">
+    <title>Motor Híbrido: PDF & Imagem para XML</title>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: #fff; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: #1e1e1e; padding: 2rem; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); text-align: center; }
+        h1 { color: #00ff88; }
+        input[type="file"] { margin: 20px 0; display: block; width: 100%; color: #ccc; }
+        input[type="submit"] { background: #00ff88; color: #000; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        input[type="submit"]:hover { background: #00cc6e; }
+        .footer { margin-top: 20px; font-size: 0.8rem; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Conversor Universal DANFE</h1>
+        <p>Interface Manual Ativa - Extração de PDF e Imagens</p>
+        <form method="post" enctype="multipart/form-data">
+            <input type="file" name="file" accept=".pdf, .png, .jpg, .jpeg" required>
+            <input type="hidden" name="origem_requisicao" value="navegador">
+            <input type="submit" value="PROCESSAR ARQUIVO">
+        </form>
+        <div class="footer">Modo Híbrido: Responde JSON para o n8n e XML para o Navegador.</div>
+    </div>
+</body>
+</html>
+'''
+
 def camscanner_filter(img_cv):
-    # 1. Reduz a imagem para a detecção de bordas ficar mais rápida e precisa
     ratio = img_cv.shape[0] / 500.0
     orig = img_cv.copy()
     res = cv2.resize(img_cv, (int(img_cv.shape[1] / ratio), 500))
     
-    # 2. Converte para cinza e acha as arestas da folha
     gray = cv2.cvtColor(res, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
     edged = cv2.Canny(gray, 75, 200)
     
-    # 3. Encontra os maiores contornos (provavelmente a folha de papel)
     cnts, _ = cv2.findContours(edged.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:5]
     
@@ -30,12 +59,10 @@ def camscanner_filter(img_cv):
     for c in cnts:
         peri = cv2.arcLength(c, True)
         approx = cv2.approxPolyDP(c, 0.02 * peri, True)
-        # Se o contorno tem 4 pontas, achamos a DANFE!
         if len(approx) == 4:
             screenCnt = approx
             break
             
-    # 4. Faz o recorte e alinhamento (Perspective Warp)
     if screenCnt is not None:
         pts = screenCnt.reshape(4, 2) * ratio
         rect = np.zeros((4, 2), dtype="float32")
@@ -59,34 +86,32 @@ def camscanner_filter(img_cv):
         M = cv2.getPerspectiveTransform(rect, dst)
         warped = cv2.warpPerspective(orig, M, (maxWidth, maxHeight))
         
-        # 5. Aplica o filtro P&B para o texto saltar (AJUSTADO PARA TIRAR O CHUVISCO)
+        # Filtro de nitidez e binarização ajustados para manter linhas finas da DANFE
         warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-        
-        # Filtro mediano: mata o "chuvisco" (ruído) sem borrar as letras
-        warped_gray = cv2.medianBlur(warped_gray, 3)
-        
-        # Aumentamos o bloco de 21 para 51 e a constante de 15 para 20
-        # Isso força o algoritmo a olhar para áreas maiores antes de escurecer algo
-        limpa = cv2.adaptiveThreshold(
-            warped_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 20
-        )
+        blurred = cv2.GaussianBlur(warped_gray, (3, 3), 0)
+        limpa = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10)
         return limpa
     else:
-        # Ajuste no Fallback também (caso a foto não ache as quinas)
+        # Se não achar as bordas do papel, aplica a binarização suave na imagem toda
         gray_orig = cv2.cvtColor(orig, cv2.COLOR_BGR2GRAY)
-        gray_orig = cv2.medianBlur(gray_orig, 3)
-        return cv2.adaptiveThreshold(
-            gray_orig, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 20
-        )
+        blurred_orig = cv2.GaussianBlur(gray_orig, (3, 3), 0)
+        return cv2.adaptiveThreshold(blurred_orig, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10)
 
 
-@app.route('/', methods=['POST'])
+@app.route('/', methods=['GET', 'POST'])
 def upload_file():
+    # Rota GET para carregar a página no navegador
+    if request.method == 'GET':
+        return HTML_PAGE
+
     if 'file' not in request.files:
         return jsonify({"erro": "Nenhum arquivo enviado"}), 400
     
     file = request.files['file']
     filename = file.filename.lower()
+    
+    # Valida se a origem do POST foi o botão HTML da página
+    veio_do_navegador = request.form.get('origem_requisicao') == 'navegador'
     
     if file and filename.endswith(('.pdf', '.png', '.jpg', '.jpeg')):
         filepath = os.path.join(UPLOAD_FOLDER, file.filename)
@@ -115,10 +140,8 @@ def upload_file():
                 if len(img_cv.shape) == 3:
                     img_cv = img_cv[:, :, ::-1].copy()
 
-                # Processa a imagem!
                 imagem_limpa = camscanner_filter(img_cv)
                 
-                # Converte a imagem limpa para Base64 para enviar de volta ao n8n
                 _, buffer = cv2.imencode('.png', imagem_limpa)
                 imagem_processada_b64 = base64.b64encode(buffer).decode('utf-8')
                 
@@ -130,12 +153,21 @@ def upload_file():
 
             xml_content += "    </paginas>\n</processamento_logistica>"
 
-            # Devolve um JSON com o XML e a Foto Tratada!
-            return jsonify({
-                "status": "sucesso",
-                "xml_data": xml_content,
-                "imagem_base64": imagem_processada_b64
-            })
+            # O grande roteador de resposta
+            if veio_do_navegador:
+                nome_saida = os.path.splitext(file.filename)[0] + ".xml"
+                return send_file(
+                    io.BytesIO(xml_content.encode('utf-8')),
+                    mimetype='text/xml',
+                    as_attachment=True,
+                    download_name=nome_saida
+                )
+            else:
+                return jsonify({
+                    "status": "sucesso",
+                    "xml_data": xml_content,
+                    "imagem_base64": imagem_processada_b64
+                })
 
         except Exception as e:
             return jsonify({"erro": str(e)}), 500
