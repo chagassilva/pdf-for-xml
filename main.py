@@ -59,14 +59,25 @@ def camscanner_filter(img_cv):
         M = cv2.getPerspectiveTransform(rect, dst)
         warped = cv2.warpPerspective(orig, M, (maxWidth, maxHeight))
         
-        # 5. Aplica o filtro P&B para o texto saltar
+        # 5. Aplica o filtro P&B para o texto saltar (AJUSTADO PARA TIRAR O CHUVISCO)
         warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-        limpa = cv2.adaptiveThreshold(warped_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 21, 15)
+        
+        # Filtro mediano: mata o "chuvisco" (ruído) sem borrar as letras
+        warped_gray = cv2.medianBlur(warped_gray, 3)
+        
+        # Aumentamos o bloco de 21 para 51 e a constante de 15 para 20
+        # Isso força o algoritmo a olhar para áreas maiores antes de escurecer algo
+        limpa = cv2.adaptiveThreshold(
+            warped_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 20
+        )
         return limpa
     else:
-        # Fallback: Se a foto estiver muito ruim e não achar as quinas, clareia tudo.
+        # Ajuste no Fallback também (caso a foto não ache as quinas)
         gray_orig = cv2.cvtColor(orig, cv2.COLOR_BGR2GRAY)
-        return cv2.adaptiveThreshold(gray_orig, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 21, 15)
+        gray_orig = cv2.medianBlur(gray_orig, 3)
+        return cv2.adaptiveThreshold(
+            gray_orig, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 20
+        )
 
 
 @app.route('/', methods=['POST'])
