@@ -82,20 +82,21 @@ def camscanner_filter(img_cv):
         heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
         maxHeight = max(int(heightA), int(heightB))
         
+        # ... (código do Perspective Warp permanece igual)
         dst = np.array([[0, 0], [maxWidth - 1, 0], [maxWidth - 1, maxHeight - 1], [0, maxHeight - 1]], dtype="float32")
         M = cv2.getPerspectiveTransform(rect, dst)
+        
+        # A MÁGICA MUDA AQUI: Mantemos a imagem colorida esticada
         warped = cv2.warpPerspective(orig, M, (maxWidth, maxHeight))
         
-        # Filtro de nitidez e binarização ajustados para manter linhas finas da DANFE
-        warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(warped_gray, (3, 3), 0)
-        limpa = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10)
-        return limpa
+        # Aplicamos um ganho suave de Contraste (alpha) e Brilho (beta)
+        # alpha = 1.2 (20% mais contraste), beta = 15 (um pouco mais claro)
+        imagem_limpa = cv2.convertScaleAbs(warped, alpha=1.2, beta=15)
+        
+        return imagem_limpa
     else:
-        # Se não achar as bordas do papel, aplica a binarização suave na imagem toda
-        gray_orig = cv2.cvtColor(orig, cv2.COLOR_BGR2GRAY)
-        blurred_orig = cv2.GaussianBlur(gray_orig, (3, 3), 0)
-        return cv2.adaptiveThreshold(blurred_orig, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10)
+        # Fallback: Se não achar as quinas, apenas clareia a foto original
+        return cv2.convertScaleAbs(orig, alpha=1.2, beta=15)
 
 
 @app.route('/', methods=['GET', 'POST'])
