@@ -4,8 +4,6 @@ import pytesseract
 from PIL import Image
 import os
 import io
-import cv2
-import numpy as np
 
 app = Flask(__name__)
 
@@ -79,40 +77,15 @@ def upload_file():
                             texto_limpo = "\n".join([l for l in texto.split('\n') if l.strip()]) if texto else ""
                             xml_content += f'        <pagina numero="{i+1}">\n            <conteudo><![CDATA[\n{texto_limpo}\n]]></conteudo>\n        </pagina>\n'
                 
-                # ROTA 2: Processamento de Imagem (OCR com OpenCV)
+                # ROTA 2: Processamento de Imagem (OCR)
                 else:
-                    xml_content += "    <tipo_arquivo>Imagem Escaneada (OCR Avançado)</tipo_arquivo>\n"
+                    xml_content += "    <tipo_arquivo>Imagem Escaneada (OCR)</tipo_arquivo>\n"
                     xml_content += "    <total_paginas>1</total_paginas>\n"
                     xml_content += "    <paginas>\n"
                     
-                    # 1. Abre a imagem original
-                    img_pil = Image.open(filepath)
-                    
-                    # 2. Converte para o formato matemático do OpenCV (numpy array)
-                    img_cv = np.array(img_pil)
-                    
-                    # 3. Tratamento de canais de cor
-                    if len(img_cv.shape) == 3 and img_cv.shape[2] == 4:
-                        img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGBA2RGB)
-                    
-                    if len(img_cv.shape) == 3:
-                        img_cv = img_cv[:, :, ::-1].copy() # RGB para BGR
-                        gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-                    else:
-                        gray = img_cv # Já está em tons de cinza
-                    
-                    # 4. Filtro estilo CamScanner: Binarização Adaptativa
-                    # Remove sombras de mesas/iluminação ruim e destaca o texto da DANFE
-                    imagem_limpa = cv2.adaptiveThreshold(
-                        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 21, 15
-                    )
-                    
-                    # 5. Converte de volta para PIL
-                    img_final_pil = Image.fromarray(imagem_limpa)
-                    
-                    # 6. Extração bruta
+                    img = Image.open(filepath)
                     config_customizada = r'--psm 6 -l por'
-                    texto = pytesseract.image_to_string(img_final_pil, config=config_customizada)
+                    texto = pytesseract.image_to_string(img, config=config_customizada)
                     texto_limpo = "\n".join([l for l in texto.split('\n') if l.strip()]) if texto else "Nenhum texto extraído."
                     
                     xml_content += f'        <pagina numero="1">\n            <conteudo><![CDATA[\n{texto_limpo}\n]]></conteudo>\n        </pagina>\n'

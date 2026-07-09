@@ -1,0 +1,8 @@
+entrada/
+PDFforXML/
+__pycache__/
+*.pdf
+*.xml
+*.png
+*.jpg
+*.jpeg
